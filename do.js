@@ -115,7 +115,7 @@ var generateDxRouteItemDeferred = function (ip, cn) {
     var deferred = Q.defer();
     whoisDeferred(ip).then(function (data) {
         //目前是取铁通和电信，这里的正则可以再补充完善
-        if (/[ChinaTelecom|CHINANET]/.test(data)) {
+        if (/ChinaTelecom|CHINANET/.test(data)) {
             var resultStr = "dx:" + ip + "：" + count2MaskStr(cn) + ";WAN1;1\r\n";
             deferred.resolve(resultStr);
         }
@@ -131,7 +131,7 @@ var defaultRouteList = "dianxin-pubdns;118.184.176.13;255.255.255.255;WAN1;1\r\n
     "lt-dnspod;183.60.52.217;255.255.255.255;WAN2;1\r\n" +
     "lt-dnspod;183.60.62.80;255.255.255.255;WAN2;1\r\n";
 
-var batchNum = 30;
+var batchNum = 50;
 var startIdx = 0;
 
 var generateDxRouteItemDeferredByBatch = function (o) {
