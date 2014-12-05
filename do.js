@@ -127,99 +127,80 @@ var generateDxRouteItemDeferred = function (ip, cn) {
     return deferred.promise;
 };
 
-//generateDxRouteItemDeferred('180.149.128.0', 8192).then(function (data) {
-//    console.log(data);
-//}, function (err) {
-//    console.log(err);
-//});
-
-//基于递归实现的
-//var generateDxRouteItemDeferred1By1 = function (ipAndCnList, result) {
-//    var icStr = ipAndCnList.pop();
-//    if (icStr.trim() == '')
-//        generateDxRouteItemDeferred1By1(ipAndCnList, result);
-//
-//    var ic = icStr.split("|");
-//    var deferred = Q.defer();
-//    console.log(ic[0]);
-//    generateDxRouteItemDeferred(ic[0], ic[1]).then(function (icResult) {
-//        result += icResult;
-//        if (ipAndCnList.length == 0)
-//            deferred.resolve(ipAndCnList, result);
-//        else
-//            generateDxRouteItemDeferred1By1(ipAndCnList, result);
-//    }, function (err) {
-//        //deferred.reject(err);
-//        console.log(ic);
-//        ipAndCnList.push(icStr);
-//        generateDxRouteItemDeferred1By1(ipAndCnList, result);
-//    });
-//    return deferred.promise;
-//};
-
-
-//基于promise递归尝试
-var generateDxRouteItemDeferred1By1 = function (ipAndCnList, result) {
-    var icStr = ipAndCnList.pop();
-    if (icStr.trim() == '')
-        generateDxRouteItemDeferred1By1(ipAndCnList, result);
-
-    var ic = icStr.split("|");
-    var deferred = Q.defer();
-    console.log(ic[0]);
-    generateDxRouteItemDeferred(ic[0], ic[1]).then(function (icResult) {
-        result += icResult;
-        if (ipAndCnList.length == 0)
-            deferred.resolve(ipAndCnList, result);
-        else
-            generateDxRouteItemDeferred1By1(ipAndCnList, result);
-    }, function (err) {
-        //deferred.reject(err);
-        console.log(ic);
-        ipAndCnList.push(icStr);
-        generateDxRouteItemDeferred1By1(ipAndCnList, result);
-    });
-    return deferred.promise;
-};
-
-
 var defaultRouteList = "dianxin-pubdns;118.184.176.13;255.255.255.255;WAN1;1\r\n" +
     "lt-dnspod;183.60.52.217;255.255.255.255;WAN2;1\r\n" +
     "lt-dnspod;183.60.62.80;255.255.255.255;WAN2;1\r\n";
 
+var batchNum = 30;
+var startIdx = 0;
+
+var generateDxRouteItemDeferredByBatch = function (o) {
+        var ipAndCnList = o.ipAndCnList;
+        var dxRouteContent = o.dxRouteContent;
+        var deferred = Q.defer();
+        var todoList = ipAndCnList.splice(0, batchNum);
+
+        console.log(todoList);
+        var promises = [];
+        todoList.forEach(function (itemStr) {
+            var item = itemStr.trim();
+            if (item !== "") {
+                var ic = item.split("|");
+                var promise = generateDxRouteItemDeferred(ic[0], ic[1]);
+                promises.push(promise);
+            }
+        });
+
+        Q.allSettled(promises)
+            .then(function (results) {
+                results.forEach(function (result) {
+                    if (result.state == 'fulfilled' && result.value)
+                        dxRouteContent += result.value;
+                    else if (result.state == 'rejected')
+                        console.log(result.reason);
+                })
+                deferred.resolve({ipAndCnList: ipAndCnList, dxRouteContent: dxRouteContent });
+            }
+        ).done();
+        return deferred.promise;
+    }
+    ;
+
 pickCNListDeferred()
     .then(function (content) {
-        var dxRouteContent = defaultRouteList.trim();
         var ipAndCnList = content.split("\r\n");
+        var dxRouteContent = defaultRouteList.trim();
         var len = ipAndCnList.length;
-
-// 放弃这种写法，四千多次网络请求会导致大量网络超时
-//        var promises = [];
-//        var idx = 0
-//        for (; idx <= len - 1; idx++) {
-//            console.log(idx);
-//            if (ipAndCnList[idx].trim() == "")
-//                continue;
-//            var ic = ipAndCnList[idx].split("|");
-//            var promise = generateDxRouteItemDeferred(ic[0], ic[1]);
-//            promises.push(promise);
-//        }
-//        Q.allSettled(promises)
-//            .then(function (results) {
-//                results.forEach(function (result) {
-//                    if (result.state == 'fulfilled' && result.value)
-//                        dxRouteContent += result.value;
-//                    else if (result.state == 'rejected')
-//                        console.log(result.reason);
-//                })
-//                console.log(dxRouteContent);
-//            }).done();
-
-        //这个方法也会因为网络不稳定有问题，暂时可以先用
-        generateDxRouteItemDeferred1By1(ipAndCnList, defaultRouteList).then(function (ipAndCnList, content) {
-            var fileName = __dirname + '/dxRoute';
-            fs.writeFile(fileName, content);
-        }, function (err) {
-            console.log(err);
-        });
+        var result = Q({ipAndCnList: ipAndCnList, dxRouteContent: dxRouteContent });
+        for (var i = 0; i < ipAndCnList.length; i += batchNum) {
+            console.log(i);
+            result = result.then(generateDxRouteItemDeferredByBatch);
+        }
+        return result;
+    }).then(function (o) {
+        fs.writeFile("z:/ttt.txt", o.dxRouteContent);
+        console.log('Finished');
     });
+
+//
+////了解promise循环的代码
+//var log = function (o) {
+//    var list = o.list;
+//    var i = o.i;
+//    var deferred = Q.defer();
+//    var item = list.pop();
+//    console.log('b' + item);
+//    Q.timeout(500).then(function () {
+//        console.log('c' + item);
+//        console.log(i);
+//        deferred.resolve({list: list, i: i+1});
+//    });
+//    return deferred.promise;
+//};
+//var list = [1, 2, 3, 4, 5];
+//var result = Q({list: list, i: 1});
+//for (var i = 0; i < list.length; i++) {
+//    console.log('a' + i);
+//    result = result.then(log);
+//}
+//return result;
